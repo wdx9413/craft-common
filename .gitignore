@@ -2,4 +2,9 @@ node_modules/
 dist/
 coverage/
 *.log
+# tsc/esbuild can emit beside sources; never track generated output.
 packages/*/src/*.d.ts
+packages/*/src/*.js
+packages/*/src/*.js.map
+*.orig
+*.rej
