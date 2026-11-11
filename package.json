@@ -1,0 +1,11 @@
+{
+  "name": "craft-common",
+  "version": "0.20.4",
+  "private": true,
+  "description": "Independent pnpm monorepo for Craft common packages",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=23"
+  },
+  "license": "MIT"
+}
