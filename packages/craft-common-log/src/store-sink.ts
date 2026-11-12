@@ -1,4 +1,4 @@
-import type { CraftStore, JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { CraftStore, JsonObject } from "craft-common-store-local/store";
 import type { TelemetryEvent, TelemetrySink } from "./index.ts";
 
 /** Append-only local sink; an event id can be retried only with identical content. */

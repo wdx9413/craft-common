@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { stableDigest } from "./digest.ts";
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { JsonObject } from "craft-common-store-local/store";
 import type { RetrievalPort, RetrievalHit, RetrievalExecution } from "./retrieval-contract.ts";
 
 function cosine(left: readonly number[], right: readonly number[]): number {

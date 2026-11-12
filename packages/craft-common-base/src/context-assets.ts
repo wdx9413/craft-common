@@ -1,4 +1,4 @@
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { JsonObject } from "craft-common-store-local/store";
 import { stableDigest } from "./digest.ts";
 import { scopeFromKey } from "./scope-policy.ts";
 import { text } from "./validation.ts";

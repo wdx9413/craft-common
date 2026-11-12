@@ -43,7 +43,7 @@
  *    because it has a different public shape rather than a different algorithm.
  */
 import { createHash } from "node:crypto";
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { JsonObject } from "craft-common-store-local/store";
 
 /**
  * Digest of the JSON serialization of a value.

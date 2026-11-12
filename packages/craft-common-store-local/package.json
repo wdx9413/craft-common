@@ -10,31 +10,47 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./store-migrations": {
-      "types": "./dist/store-migrations.d.ts",
-      "default": "./dist/store-migrations.js"
+    "./codebase-shards": {
+      "types": "./dist/codebase-shards.d.ts",
+      "default": "./dist/codebase-shards.js"
     },
     "./content-store": {
       "types": "./dist/content-store.d.ts",
       "default": "./dist/content-store.js"
     },
-    "./store-schema": {
-      "types": "./dist/store-schema.d.ts",
-      "default": "./dist/store-schema.js"
+    "./context-access-guard": {
+      "types": "./dist/context-access-guard.d.ts",
+      "default": "./dist/context-access-guard.js"
+    },
+    "./index": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./paths": {
       "types": "./dist/paths.d.ts",
       "default": "./dist/paths.js"
     },
+    "./sqlite-busy-timeout": {
+      "types": "./dist/sqlite-busy-timeout.d.ts",
+      "default": "./dist/sqlite-busy-timeout.js"
+    },
+    "./store-migrations": {
+      "types": "./dist/store-migrations.d.ts",
+      "default": "./dist/store-migrations.js"
+    },
+    "./store-schema": {
+      "types": "./dist/store-schema.d.ts",
+      "default": "./dist/store-schema.js"
+    },
     "./store": {
       "types": "./dist/store.d.ts",
       "default": "./dist/store.js"
     },
-    "./package.json": "./package.json",
-    "./context-access-guard": {
-      "types": "./dist/context-access-guard.d.ts",
-      "default": "./dist/context-access-guard.js"
-    }
+    "./trace-shards": {
+      "types": "./dist/trace-shards.d.ts",
+      "default": "./dist/trace-shards.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -52,5 +68,9 @@
   "devDependencies": {
     "@types/node": ">=23 <26",
     "typescript": ">=5.8 <7"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

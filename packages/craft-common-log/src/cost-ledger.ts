@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
-import { CraftStore } from "../../craft-common-store-local/src/store.ts";
-import { text } from "../../craft-common-base/src/validation.ts";
-import { payload, stableDigest } from "../../craft-common-base/src/digest.ts";
+import type { JsonObject } from "craft-common-store-local/store";
+import { CraftStore } from "craft-common-store-local/store";
+import { text } from "craft-common-base/validation";
+import { payload, stableDigest } from "craft-common-base/digest";
 
 const REPORT_LIMIT = 10_000;
 const METRICS = ["cost_usd", "input_tokens", "output_tokens"] as const;

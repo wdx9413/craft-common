@@ -34,7 +34,7 @@
  * infrastructure file importing this would be an upward import and the layering
  * audit would reject it.
  */
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { JsonObject } from "craft-common-store-local/store";
 import { COGNITIVE_SCOPE_KINDS } from "./scope-policy.ts";
 
 /** A non-empty string, trimmed. An absent or blank value is an error. */

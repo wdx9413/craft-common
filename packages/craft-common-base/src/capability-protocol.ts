@@ -50,8 +50,8 @@
  * experience pluggable** — which is also why only those three are candidates for their
  * own package.
  */
-import type { ContextReadRef } from "../../craft-common-store-local/src/context-access-guard.ts";
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { ContextReadRef } from "craft-common-store-local/context-access-guard";
+import type { JsonObject } from "craft-common-store-local/store";
 
 /** A context member a capability can contribute to, and how it behaves. */
 export const CONTEXT_MEMBERS = ["history", "knowledge", "memory", "experience", "state"] as const;

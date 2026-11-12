@@ -6,7 +6,7 @@
  * after a session ends.  Keeping those questions together here prevents each
  * cognitive member from inventing a subtly different team-sharing rule.
  */
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { JsonObject } from "craft-common-store-local/store";
 import type { ScopeRef } from "./validation.ts";
 
 export const COGNITIVE_SCOPE_KINDS = ["user", "project", "workspace", "task", "session", "team", "organization", "global"] as const;

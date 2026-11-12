@@ -1,5 +1,5 @@
-import type { JsonObject, CraftStore } from "../../craft-common-store-local/src/store.ts";
-import { digestJson } from "../../craft-common-base/src/digest.ts";
+import type { JsonObject, CraftStore } from "craft-common-store-local/store";
+import { digestJson } from "craft-common-base/digest";
 
 export const EVALUATION_STAGES = ["mechanism_passed", "fixture_passed", "conformance_passed", "integration_passed", "host_verified", "business_eligible", "routeable"] as const;
 export type EvaluationStage = typeof EVALUATION_STAGES[number];

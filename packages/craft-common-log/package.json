@@ -10,6 +10,26 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./cost-ledger": {
+      "types": "./dist/cost-ledger.d.ts",
+      "default": "./dist/cost-ledger.js"
+    },
+    "./evaluation-contract": {
+      "types": "./dist/evaluation-contract.d.ts",
+      "default": "./dist/evaluation-contract.js"
+    },
+    "./index": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./journal-sink": {
+      "types": "./dist/journal-sink.d.ts",
+      "default": "./dist/journal-sink.js"
+    },
+    "./operation": {
+      "types": "./dist/operation.d.ts",
+      "default": "./dist/operation.js"
+    },
     "./otlp": {
       "types": "./dist/otlp.d.ts",
       "default": "./dist/otlp.js"
@@ -18,13 +38,9 @@
       "types": "./dist/store-sink.d.ts",
       "default": "./dist/store-sink.js"
     },
-    "./evaluation-contract": {
-      "types": "./dist/evaluation-contract.d.ts",
-      "default": "./dist/evaluation-contract.js"
-    },
-    "./cost-ledger": {
-      "types": "./dist/cost-ledger.d.ts",
-      "default": "./dist/cost-ledger.js"
+    "./telemetry": {
+      "types": "./dist/telemetry.d.ts",
+      "default": "./dist/telemetry.js"
     },
     "./package.json": "./package.json"
   },
@@ -47,5 +63,9 @@
   "devDependencies": {
     "@types/node": ">=23 <26",
     "typescript": ">=5.8 <7"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

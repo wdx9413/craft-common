@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import type { CraftStore } from "../../craft-common-store-local/src/store.ts";
-import { stableDigest } from "../../craft-common-base/src/digest.ts";
+import type { CraftStore } from "craft-common-store-local/store";
+import { stableDigest } from "craft-common-base/digest";
 import { telemetryEvent, type TelemetryEvent } from "./telemetry.ts";
 import { StoreTelemetrySink } from "./store-sink.ts";
 

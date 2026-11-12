@@ -1,4 +1,4 @@
-import type { JsonObject } from "../../craft-common-store-local/src/store.ts";
+import type { JsonObject } from "craft-common-store-local/store";
 
 export function temporalMemorySelect<T extends JsonObject>(items: readonly T[], now: Date, history: boolean,
   includeStale = false): { selected: T[]; excluded: JsonObject[] } {
