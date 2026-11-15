@@ -2,7 +2,7 @@ lockfileVersion: '9.0'
 
 settings:
   autoInstallPeers: true
-  excludeLinksFromLockfile: false
+  excludeLinksFromLockfile: true
 
 importers:
 
@@ -11,8 +11,8 @@ importers:
   packages/craft-common-base:
     dependencies:
       craft-common-store-local:
-        specifier: workspace:*
-        version: link:../craft-common-store-local
+        specifier: 0.20.4
+        version: 0.20.4
     devDependencies:
       '@types/node':
         specifier: '>=23 <26'
@@ -24,11 +24,11 @@ importers:
   packages/craft-common-log:
     dependencies:
       craft-common-base:
-        specifier: workspace:*
-        version: link:../craft-common-base
+        specifier: 0.20.4
+        version: 0.20.4
       craft-common-store-local:
-        specifier: workspace:*
-        version: link:../craft-common-store-local
+        specifier: 0.20.4
+        version: 0.20.4
     devDependencies:
       '@types/node':
         specifier: '>=23 <26'
