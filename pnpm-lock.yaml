@@ -37,6 +37,16 @@ importers:
         specifier: '>=5.8 <7'
         version: 6.0.3
 
+
+  packages/craft-common-ontology:
+    devDependencies:
+      '@types/node':
+        specifier: '>=23 <26'
+        version: 25.9.9
+      typescript:
+        specifier: '>=5.8 <7'
+        version: 6.0.3
+
   packages/craft-common-store-local:
     devDependencies:
       '@types/node':

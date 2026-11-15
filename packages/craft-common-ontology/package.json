@@ -1,0 +1,52 @@
+{
+  "name": "craft-common-ontology",
+  "version": "0.20.4",
+  "description": "Shared concept taxonomy so Knowledge, Memory and Experience record the same things the same way",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./concepts": {
+      "types": "./dist/concepts.d.ts",
+      "default": "./dist/concepts.js"
+    },
+    "./validation": {
+      "types": "./dist/validation.d.ts",
+      "default": "./dist/validation.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=23"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wdx9413/craft-common.git",
+    "directory": "packages/craft-common-ontology"
+  },
+  "homepage": "https://github.com/wdx9413/craft-common#readme",
+  "bugs": {
+    "url": "https://github.com/wdx9413/craft-common/issues"
+  },
+  "devDependencies": {
+    "@types/node": ">=23 <26",
+    "typescript": ">=5.8 <7"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
