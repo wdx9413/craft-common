@@ -94,3 +94,69 @@ export const EMPTY_PHRASES: readonly string[] = [
 export function isConceptKind(value: unknown): value is ConceptKind {
   return typeof value === "string" && (CONCEPT_KINDS as readonly string[]).includes(value);
 }
+
+/**
+ * Relation kinds shared by the Knowledge relation graph. Kept here, next to the
+ * concept taxonomy, so a relation's allowed source/target concepts live in one
+ * place instead of being guessed by each writer.
+ */
+export const RELATION_KINDS = [
+  "derives_from",
+  "supersedes",
+  "contradicts",
+  "supports",
+  "refines",
+  "references",
+] as const;
+
+export type RelationKind = (typeof RELATION_KINDS)[number];
+
+export function isRelationKind(value: unknown): value is RelationKind {
+  return typeof value === "string" && (RELATION_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * Which concept pairs a relation may connect. A pair is optional: `null` means
+ * "no meaningful constraint for this relation", not "forbidden". When both
+ * endpoint concepts are known and both constraints are declared, the relation
+ * is checked against them. This is deliberately a *soft*, additive layer on the
+ * existing graph — it never rewrites a claim or turns an inference into a fact.
+ */
+export interface RelationTypeRule {
+  readonly is: string;
+  readonly from: readonly ConceptKind[] | null;
+  readonly to: readonly ConceptKind[] | null;
+}
+
+export const RELATION_TYPES: Readonly<Record<RelationKind, RelationTypeRule>> = {
+  derives_from: {
+    is: "A claim rests on a more foundational statement; both ends are propositions.",
+    from: ["fact", "rule", "decision", "procedure"],
+    to: ["fact", "rule", "decision", "term", "procedure"],
+  },
+  supersedes: {
+    is: "A newer statement replaces an older one; versions of the same kind of statement.",
+    from: ["fact", "rule", "decision", "term", "preference", "procedure"],
+    to: ["fact", "rule", "decision", "term", "preference", "procedure"],
+  },
+  contradicts: {
+    is: "Two truth-bearing or normative statements cannot both hold.",
+    from: ["fact", "rule", "decision"],
+    to: ["fact", "rule", "decision"],
+  },
+  supports: {
+    is: "One statement gives evidence or rationale for another proposition.",
+    from: ["fact", "rule", "decision", "procedure"],
+    to: ["fact", "rule", "decision", "term", "procedure"],
+  },
+  refines: {
+    is: "A more specific statement narrows a general one.",
+    from: ["rule", "decision", "procedure", "term"],
+    to: ["rule", "decision", "procedure", "term", "fact"],
+  },
+  references: {
+    is: "A loose pointer; no concept constraint because anything may cite anything.",
+    from: null,
+    to: null,
+  },
+};

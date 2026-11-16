@@ -1,4 +1,4 @@
-import { CONCEPTS, EMPTY_PHRASES, type ConceptKind } from "./concepts.ts";
+import { CONCEPTS, EMPTY_PHRASES, RELATION_TYPES, type ConceptKind, type RelationKind } from "./concepts.ts";
 
 /** Maximum characters for one durable statement; longer prose belongs in a document, not the ledger. */
 export const CONCEPT_MAX_LENGTH = 300;
@@ -58,4 +58,112 @@ export function mapLegacyKind(component: "knowledge" | "memory" | "experience", 
   const mapped = table[key];
   if (!mapped) throw new Error(`unsupported ${component} kind: ${legacyKind}`);
   return mapped;
+}
+
+/**
+ * Readability gate for a long-form concept body (for example a self-evolved
+ * Mod overlay). Unlike `validateConcept`, this does not cap length at 300
+ * characters; it rejects only the phrases and deferred references that make a
+ * durable statement unreadable on its own.
+ */
+export function validateConceptBody(body: unknown, name = "body"): string {
+  if (typeof body !== "string" || !body.trim()) throw new Error(`${name} must be a non-empty string`);
+  const lower = ` ${body.toLowerCase()} `;
+  for (const phrase of EMPTY_PHRASES) {
+    if (lower.includes(phrase.toLowerCase())) {
+      throw new Error(`${name} must not contain the filler phrase "${phrase.trim()}" — say what the rule actually means`);
+    }
+  }
+  if (/^(?:这|the |this |it )?(?:个|条|些)?(?:相关的?|其他的?|上面|下面|以上)/u.test(body.trim())) {
+    throw new Error(`${name} must stand on its own — it cannot rely on surrounding text`);
+  }
+  return body;
+}
+
+export interface RelationConceptCheck {
+  readonly valid: boolean;
+  readonly reason: string | null;
+}
+
+/**
+ * Check a typed relation against the concept constraints, when both endpoint
+ * concepts are known. Unknown concepts are *not* an error here: historical
+ * records predate concept tags, and the shared taxonomy never rewrites them.
+ * A check only fails when both concepts are known and the relation's declared
+ * constraint excludes one of them.
+ */
+export function checkRelationConcepts(relation: unknown, fromConcept: unknown, toConcept: unknown): RelationConceptCheck {
+  if (typeof relation !== "string" || !(relation in RELATION_TYPES)) {
+    throw new Error(`relation must be one of: ${Object.keys(RELATION_TYPES).join(", ")}`);
+  }
+  const rule = RELATION_TYPES[relation as RelationKind];
+  const fromKnown = typeof fromConcept === "string" && fromConcept in CONCEPTS;
+  const toKnown = typeof toConcept === "string" && toConcept in CONCEPTS;
+  if (!fromKnown || !toKnown) return { valid: true, reason: null };
+  if (rule.from && !rule.from.includes(fromConcept as ConceptKind))
+    return { valid: false, reason: `${relation} cannot start at a ${String(fromConcept)}` };
+  if (rule.to && !rule.to.includes(toConcept as ConceptKind))
+    return { valid: false, reason: `${relation} cannot end at a ${String(toConcept)}` };
+  return { valid: true, reason: null };
+}
+
+export interface ConceptConsistencyIssue {
+  readonly kind: "duplicate_term_definition" | "conflicting_rule";
+  readonly detail: string;
+  readonly recordIds: readonly string[];
+}
+
+/**
+ * Cross-record readability check over already-tagged concept records.
+ *
+ * This is intentionally *diagnostic* and read-only. The shared taxonomy does
+ * not own any component's write gate, so it reports issues for a caller to
+ * surface; it never deletes, merges, or rewrites a record. Two rules are
+ * checked because they are the ones that silently destroy readability:
+ * a `term` with two different meanings, and two rules whose statements are
+ * exact opposites ("do X" / "never X").
+ */
+export function checkConceptConsistency(records: readonly { id: string; concept_kind: unknown; statement: string; subject?: string }[]): ConceptConsistencyIssue[] {
+  const issues: ConceptConsistencyIssue[] = [];
+  const terms = new Map<string, { id: string; statement: string }[]>();
+  const rules = new Map<string, { id: string; statement: string }[]>();
+  for (const record of records) {
+    if (typeof record.statement !== "string" || !record.statement.trim()) continue;
+    if (record.concept_kind === "term") {
+      // A term's identity is the vocabulary entry it defines (`subject`), not
+      // the full statement. Two different definitions of one term collide even
+      // though their statements differ — that is the failure this check exists for.
+      const key = (record.subject ?? record.statement).trim().replace(/\s+/gu, " ").toLowerCase();
+      const bucket = terms.get(key) ?? [];
+      bucket.push({ id: record.id, statement: record.statement });
+      terms.set(key, bucket);
+    }
+    if (record.concept_kind === "rule") {
+      const key = record.statement.trim().replace(/\s+/gu, " ").toLowerCase();
+      // Strip both leading politeness and leading negation so "Use pnpm" and
+      // "Never use pnpm" share a key and land in the same bucket.
+      const normalized = key
+        .replace(/^(?:please\s+|always\s+|must\s+)/u, "")
+        .replace(/^(?:never\s+|do not\s+|don't\s+|不要\s*|禁止\s*|严禁\s*)/u, "")
+        .replace(/[。.!！]$/u, "");
+      const bucket = rules.get(normalized) ?? [];
+      bucket.push({ id: record.id, statement: record.statement });
+      rules.set(normalized, bucket);
+    }
+  }
+  for (const [key, bucket] of terms) {
+    const distinct = new Set(bucket.map((item) => item.statement.trim().replace(/\s+/gu, " ").toLowerCase()));
+    if (distinct.size > 1) {
+      issues.push({ kind: "duplicate_term_definition", detail: `term "${key}" has ${distinct.size} distinct definitions`, recordIds: bucket.map((item) => item.id) });
+    }
+  }
+  for (const [key, bucket] of rules) {
+    if (bucket.length < 2) continue;
+    const affirmative = bucket.filter((item) => !/^(?:never|do not|don't|不要|禁止|严禁)\b/u.test(item.statement.trim().replace(/\s+/gu, " ").toLowerCase()));
+    const negative = bucket.filter((item) => /^(?:never|do not|don't|不要|禁止|严禁)\b/u.test(item.statement.trim().replace(/\s+/gu, " ").toLowerCase()));
+    if (affirmative.length && negative.length) {
+      issues.push({ kind: "conflicting_rule", detail: `rules both require and forbid "${key}"`, recordIds: bucket.map((item) => item.id) });
+    }
+  }
+  return issues;
 }

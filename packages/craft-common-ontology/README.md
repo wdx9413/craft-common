@@ -20,6 +20,17 @@ Statements are capped at 300 characters and reject filler phrases
 (“待补充”, “相关内容”, “见上文”…), because durable records must stand on
 their own.
 
+## Relations and consistency (additive, diagnostic)
+
+`RELATION_TYPES` declares which concept kinds a typed Knowledge relation may
+connect (`derives_from`, `supersedes`, `contradicts`, `supports`, `refines`,
+`references`). `checkRelationConcepts(relation, from, to)` is a soft check: an
+unknown concept (a historical, untagged record) passes; a known concept that
+the relation forbids fails. `checkConceptConsistency(records)` is a read-only
+diagnostic for two readability failures — one `term` with two definitions, and
+rules that both require and forbid the same action. Neither API writes or
+rewrites a record; an inference is never promoted to a fact.
+
 ## Usage
 
 ```ts
