@@ -1,4 +1,4 @@
-import { CONCEPTS, EMPTY_PHRASES, RELATION_TYPES, type ConceptKind, type RelationKind } from "./concepts.ts";
+import { CONCEPTS, EMPTY_PHRASES, isConceptKind, isRelationKind, RELATION_TYPES, type ConceptKind, type RelationKind } from "./concepts.ts";
 
 /** Maximum characters for one durable statement; longer prose belongs in a document, not the ledger. */
 export const CONCEPT_MAX_LENGTH = 300;
@@ -18,7 +18,7 @@ export interface ConceptValidationResult {
  * module — it only gates new writes.
  */
 export function validateConcept(kind: unknown, statement: unknown): ConceptValidationResult {
-  if (typeof kind !== "string" || !(kind in CONCEPTS)) {
+  if (!isConceptKind(kind)) {
     throw new Error(`concept kind must be one of: ${Object.keys(CONCEPTS).join(", ")}`);
   }
   if (typeof statement !== "string" || !statement.trim()) {
@@ -93,12 +93,12 @@ export interface RelationConceptCheck {
  * constraint excludes one of them.
  */
 export function checkRelationConcepts(relation: unknown, fromConcept: unknown, toConcept: unknown): RelationConceptCheck {
-  if (typeof relation !== "string" || !(relation in RELATION_TYPES)) {
+  if (!isRelationKind(relation)) {
     throw new Error(`relation must be one of: ${Object.keys(RELATION_TYPES).join(", ")}`);
   }
   const rule = RELATION_TYPES[relation as RelationKind];
-  const fromKnown = typeof fromConcept === "string" && fromConcept in CONCEPTS;
-  const toKnown = typeof toConcept === "string" && toConcept in CONCEPTS;
+  const fromKnown = isConceptKind(fromConcept);
+  const toKnown = isConceptKind(toConcept);
   if (!fromKnown || !toKnown) return { valid: true, reason: null };
   if (rule.from && !rule.from.includes(fromConcept as ConceptKind))
     return { valid: false, reason: `${relation} cannot start at a ${String(fromConcept)}` };

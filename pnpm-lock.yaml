@@ -2,7 +2,7 @@ lockfileVersion: '9.0'
 
 settings:
   autoInstallPeers: true
-  excludeLinksFromLockfile: true
+  excludeLinksFromLockfile: false
 
 importers:
 
@@ -37,7 +37,6 @@ importers:
         specifier: '>=5.8 <7'
         version: 6.0.3
 
-
   packages/craft-common-ontology:
     devDependencies:
       '@types/node':
@@ -61,6 +60,14 @@ packages:
   '@types/node@25.9.9':
     resolution: {integrity: sha512-b4e2xxj/yMeT2hNlD6x7zNFiQK2Dlmkb9CQ6v3/1G2RezKN4YS2lcEv8lzGm1mhs4f2lM4yNAMI/zUDBZBBt7w==}
 
+  craft-common-base@0.20.4:
+    resolution: {integrity: sha512-3oGyyGnBJ9LbzAVgsEp838DPIzV4Xe/0WTbUQqcrFGRLo+R5E9OOKWZMTi0mO4bJrnYltM9we+jmNlpCF0nH9g==}
+    engines: {node: '>=23'}
+
+  craft-common-store-local@0.20.4:
+    resolution: {integrity: sha512-lGlLr8PIThQPVkRa5MQiNiIvNOdT6UxQVeGUB01jKQPTaWeNhhceMUDok6OK0mtn9cYIXcakpOSg0Ey2I3oeTA==}
+    engines: {node: '>=23'}
+
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -74,6 +81,12 @@ snapshots:
   '@types/node@25.9.9':
     dependencies:
       undici-types: 7.24.6
+
+  craft-common-base@0.20.4:
+    dependencies:
+      craft-common-store-local: 0.20.4
+
+  craft-common-store-local@0.20.4: {}
 
   typescript@6.0.3: {}
 
