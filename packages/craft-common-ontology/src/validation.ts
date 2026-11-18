@@ -159,8 +159,8 @@ export function checkConceptConsistency(records: readonly { id: string; concept_
   }
   for (const [key, bucket] of rules) {
     if (bucket.length < 2) continue;
-    const affirmative = bucket.filter((item) => !/^(?:never|do not|don't|不要|禁止|严禁)\b/u.test(item.statement.trim().replace(/\s+/gu, " ").toLowerCase()));
-    const negative = bucket.filter((item) => /^(?:never|do not|don't|不要|禁止|严禁)\b/u.test(item.statement.trim().replace(/\s+/gu, " ").toLowerCase()));
+    const affirmative = bucket.filter((item) => !/^(?:(?:never|do not|don't)\b|(?:不要|禁止|严禁|不得|不能|不可以))/u.test(item.statement.trim().replace(/\s+/gu, " ").toLowerCase()));
+    const negative = bucket.filter((item) => /^(?:(?:never|do not|don't)\b|(?:不要|禁止|严禁|不得|不能|不可以))/u.test(item.statement.trim().replace(/\s+/gu, " ").toLowerCase()));
     if (affirmative.length && negative.length) {
       issues.push({ kind: "conflicting_rule", detail: `rules both require and forbid "${key}"`, recordIds: bucket.map((item) => item.id) });
     }
