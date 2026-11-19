@@ -1,6 +1,6 @@
 {
   "name": "craft-common-log",
-  "version": "0.20.4",
+  "version": "0.20.12",
   "description": "Content-free telemetry, evaluation and OTLP observability SDK",
   "type": "module",
   "main": "./dist/index.js",

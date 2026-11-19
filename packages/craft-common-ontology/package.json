@@ -1,6 +1,6 @@
 {
   "name": "craft-common-ontology",
-  "version": "0.20.5",
+  "version": "0.20.7",
   "description": "Shared concept taxonomy so Knowledge, Memory and Experience record the same things the same way",
   "type": "module",
   "main": "./dist/index.js",

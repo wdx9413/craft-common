@@ -4,7 +4,8 @@ import * as ontology from "../src/index.ts";
 
 test("ontology package entry exports its public surface", () => {
   for (const name of ["CONCEPTS", "CONCEPT_KINDS", "RELATION_KINDS", "isConceptKind", "isRelationKind", "validateConcept",
-    "validateConceptBody", "checkConceptConsistency", "checkRelationConcepts", "mapLegacyKind", "EVOLUTION_VALUE_ACTIONS", "evaluateEvolutionValue"]) {
+    "validateConceptBody", "checkConceptConsistency", "checkRelationConcepts", "mapLegacyKind", "EVOLUTION_VALUE_ACTIONS", "evaluateEvolutionValue",
+    "appendClassificationRevision", "createOntologyVersion", "ONTOLOGY_CONTRACT_VERSION"]) {
     assert.ok(name in ontology, `missing export ${name}`);
   }
 });
