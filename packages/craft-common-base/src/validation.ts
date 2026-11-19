@@ -152,7 +152,6 @@ export function noCredentialAssignment(value: string, name: string): string {
  */
 export function boundedActor(value: unknown, name: string): string {
   const result = text(value, name).trim();
-  if (!result) throw new Error(`${name} must not be blank`);
   if (result.length > 120) throw new Error(`${name} must be 120 characters or fewer`);
   if (/[\r\n\0]/u.test(result)) throw new Error(`${name} must be a single line`);
   return noCredentialAssignment(result, name);

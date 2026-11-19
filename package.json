@@ -7,5 +7,9 @@
   "engines": {
     "node": ">=23"
   },
+  "scripts": {
+    "test:coverage": "pnpm --filter craft-common-ontology run test",
+    "test:e2e": "node ../.tools/verify-craft-coverage.mjs"
+  },
   "license": "MIT"
 }

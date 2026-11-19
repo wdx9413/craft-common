@@ -61,11 +61,11 @@ packages:
     resolution: {integrity: sha512-b4e2xxj/yMeT2hNlD6x7zNFiQK2Dlmkb9CQ6v3/1G2RezKN4YS2lcEv8lzGm1mhs4f2lM4yNAMI/zUDBZBBt7w==}
 
   craft-common-base@0.20.4:
-    resolution: {integrity: sha512-3oGyyGnBJ9LbzAVgsEp838DPIzV4Xe/0WTbUQqcrFGRLo+R5E9OOKWZMTi0mO4bJrnYltM9we+jmNlpCF0nH9g==}
+    resolution: {integrity: sha512-JDBy6TW2UxOtIb33UkVkRbMaumiJN2GSPx9GRDTVLYStJ4g3WibfuAAh9P+8vlkULYnA3gVlY2wF6v83Glc9Xg==}
     engines: {node: '>=23'}
 
   craft-common-store-local@0.20.4:
-    resolution: {integrity: sha512-lGlLr8PIThQPVkRa5MQiNiIvNOdT6UxQVeGUB01jKQPTaWeNhhceMUDok6OK0mtn9cYIXcakpOSg0Ey2I3oeTA==}
+    resolution: {integrity: sha512-gTSFxbANgWIiRRtwJfIFmdhesRclPOoPQ9Hhr4eyhsPvEmBqx7Rf7uJn7reVUdx/oH95n2qn+bZJSAiqNr1uYw==}
     engines: {node: '>=23'}
 
   typescript@6.0.3:
