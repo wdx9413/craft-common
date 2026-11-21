@@ -1,6 +1,7 @@
+import { RecordFileStore, recordMetadata } from "./record-files.ts";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { sqliteTraceBusyTimeoutMs } from "./sqlite-busy-timeout.ts";
 import type { JsonObject } from "./store.ts";
@@ -17,14 +18,46 @@ function payloadOnly(value: JsonObject): JsonObject {
   return Object.fromEntries(Object.entries(value).filter(([key]) => !RESERVED.has(key)));
 }
 
-function record(row: Record<string, unknown>): JsonObject {
-  return { ...JSON.parse(String(row.payload_json)) as JsonObject, id: String(row.id), version: Number(row.version),
+function record(row: Record<string, unknown>, payload: JsonObject): JsonObject {
+  return { ...payload, id: String(row.id), version: Number(row.version),
     created_at: String(row.created_at), updated_at: String(row.updated_at) };
 }
 
 /** One Trace and all of its children use one WAL file and one write transaction. */
 export class TraceShardStore {
-  readonly directory: string;
+  directory: string;
+  #recordFiles: RecordFileStore | null = null;
+  configureRecordFiles(files: RecordFileStore, ownerRecords = false): void {
+    this.close(); this.#recordFiles = files;
+    if (ownerRecords) this.directory = join(dirname(join(files.root, files.directory)), "trace", "v1");
+  }
+
+  private payload(row: Record<string, unknown>): JsonObject {
+    const payload = JSON.parse(String(row.payload_json)) as JsonObject;
+    return this.#recordFiles?.payload(String(row.kind), String(row.id), Number(row.version), payload) ?? payload;
+  }
+
+  private logicalRow(row: Record<string, unknown>): Record<string, unknown> {
+    return { kind: row.kind, id: row.id, version: row.version, payload_json: this.#recordFiles ? JSON.stringify(this.payload(row)) : row.payload_json, created_at: row.created_at, updated_at: row.updated_at };
+  }
+
+  private eventRow(row: Record<string, unknown>): Record<string, unknown> {
+    return { stream: row.stream, sequence: row.sequence, event_type: row.event_type, payload_json: this.#recordFiles ? JSON.stringify(this.#recordFiles.payload(`event:${row.event_type}`, String(row.stream), Number(row.sequence), JSON.parse(String(row.payload_json)) as JsonObject)) : row.payload_json, created_at: row.created_at };
+  }
+
+  private storedEvent(row: TraceEventRow): string {
+    if (!this.#recordFiles) return row.payload_json;
+    const indexed = JSON.parse(row.payload_json) as JsonObject;
+    if (indexed._record_file !== undefined) { this.eventRow(row); return row.payload_json; }
+    return JSON.stringify(this.#recordFiles.write(`event:${row.event_type}`, row.stream, row.sequence, indexed, row.created_at, row.created_at, "jsonl"));
+  }
+
+  private stored(row: Record<string, unknown>): string {
+    if (!this.#recordFiles) return String(row.payload_json);
+    const indexed = JSON.parse(String(row.payload_json)) as JsonObject;
+    if (indexed._record_file !== undefined) { this.payload(row); return String(row.payload_json); }
+    return JSON.stringify(this.#recordFiles.write(String(row.kind), String(row.id), Number(row.version), JSON.parse(String(row.payload_json)) as JsonObject, String(row.created_at), String(row.updated_at)));
+  }
   #databases = new Map<number, DatabaseSync>();
   #readDatabases = new Map<number, DatabaseSync>();
   #depth = new Map<number, number>();
@@ -92,6 +125,9 @@ export class TraceShardStore {
             AND json_extract(r.payload_json,'$.scope.kind') IS NOT NULL AND json_extract(r.payload_json,'$.scope.id') IS NOT NULL
             AND json_extract(r.payload_json,'$.session_id') IS NOT NULL AND json_extract(r.payload_json,'$.turn_id') IS NOT NULL`);
       }
+      const fileMode = database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='record_file_mode'").get();
+      if (fileMode && !this.#recordFiles) throw new Error("File-backed shard requires its owner record file store");
+      if (create && this.#recordFiles && !fileMode) database.exec("CREATE TABLE record_file_mode(version TEXT NOT NULL CHECK(version='v1')); INSERT INTO record_file_mode VALUES('v1')");
     } catch (error) { database.close(); throw error; }
     (create ? this.#databases : this.#readDatabases).set(shard, database);
     return database;
@@ -148,7 +184,7 @@ export class TraceShardStore {
     const next = version ?? Number((database.prepare("SELECT COALESCE(MAX(version),0)+1 version FROM records WHERE kind=? AND id=?")
       .get(kind, id) as { version: number }).version);
     database.prepare("INSERT INTO records(kind,id,version,payload_json,created_at,updated_at) VALUES(?,?,?,?,?,?)")
-      .run(kind, id, next, JSON.stringify(payload), now, now);
+      .run(kind, id, next, this.stored({ kind, id, version: next, payload_json: JSON.stringify(payload), created_at: now, updated_at: now }), now, now);
     if (kind === "codex_hook_signal" && payload.scope && typeof payload.scope === "object" && !Array.isArray(payload.scope)
       && typeof (payload.scope as JsonObject).kind === "string" && typeof (payload.scope as JsonObject).id === "string"
       && typeof payload.session_id === "string" && typeof payload.turn_id === "string") {
@@ -160,6 +196,19 @@ export class TraceShardStore {
     return { ...payload, id, version: next, created_at: now, updated_at: now };
   }
 
+  findMetadata(kind: string, id: string, version?: number): JsonObject | null {
+    const databases = kind === "trace" || kind === "trace_archive"
+      ? [this.database(this.shard(id), false)].filter((value): value is DatabaseSync => value !== null)
+      : this.existing().map(([, database]) => database);
+    for (const database of databases) {
+      const row = version === undefined
+        ? database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id)
+        : database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version=?").get(kind, id, version);
+      if (row) return record(row, recordMetadata(kind, JSON.parse(String(row.payload_json))));
+    }
+    return null;
+  }
+
   find(kind: string, id: string, version?: number, traceId?: string): JsonObject | null {
     const databases = traceId || kind === "trace" || kind === "trace_archive"
       ? [this.database(this.shard(traceId ?? id), false)].filter((value): value is DatabaseSync => value !== null)
@@ -168,9 +217,27 @@ export class TraceShardStore {
       const row = (version === undefined
         ? database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id)
         : database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version=?").get(kind, id, version)) as Record<string, unknown> | undefined;
-      if (row) return record(row);
+      if (row) return record(row, this.payload(row));
     }
     return null;
+  }
+
+  historyMetadata(kind: string, id: string, before: number, limit: number): JsonObject[] {
+    const databases = kind === "trace" || kind === "trace_archive"
+      ? [this.database(this.shard(id), false)].filter((value): value is DatabaseSync => value !== null)
+      : this.existing().map(([, database]) => database);
+    return databases.flatMap(database => database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version<? ORDER BY version DESC LIMIT ?")
+      .all(kind, id, before, limit).map(row => record(row, recordMetadata(kind, JSON.parse(String(row.payload_json))))))
+      .sort((left, right) => Number(right.version) - Number(left.version)).slice(0, limit);
+  }
+
+  history(kind: string, id: string, before: number, limit: number): JsonObject[] {
+    const databases = kind === "trace" || kind === "trace_archive"
+      ? [this.database(this.shard(id), false)].filter((value): value is DatabaseSync => value !== null)
+      : this.existing().map(([, database]) => database);
+    return databases.flatMap(database => database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version<? ORDER BY version DESC LIMIT ?")
+      .all(kind, id, before, limit).map(row => record(row, this.payload(row))))
+      .sort((left, right) => Number(right.version) - Number(left.version)).slice(0, limit);
   }
 
   list(kind: string, limit: number, predicate?: (value: JsonObject) => boolean): JsonObject[] {
@@ -181,7 +248,7 @@ export class TraceShardStore {
         ON latest.id=r.id AND latest.version=r.version WHERE r.kind=? ORDER BY r.updated_at DESC,r.rowid DESC ${predicate ? "" : "LIMIT ?"}`)
         .all(kind, kind, ...(predicate ? [] : [limit])) as Array<Record<string, unknown>>;
       for (const row of rows) {
-        const value = record(row);
+        const value = record(row, this.payload(row));
         if (!predicate || predicate(value)) records.push(value);
       }
     }
@@ -198,7 +265,7 @@ export class TraceShardStore {
         ON r.kind='codex_hook_signal' AND r.id=l.id AND r.version=l.version
         WHERE l.scope_kind=? AND l.scope_id=? AND l.session_id=? AND l.turn_id=? AND (? IS NULL OR json_extract(r.payload_json, '$.session_host')=?) LIMIT ?`)
         .all(scopeKind, scopeId, sessionId, turnId, host ?? null, host ?? null, limit) as Array<Record<string, unknown>>;
-      records.push(...rows.map(record));
+      records.push(...rows.map(row => record(row, this.payload(row))));
     }
     return records.sort((a, b) => Number(a.observed_at_ms ?? Date.parse(String(a.created_at)))
       - Number(b.observed_at_ms ?? Date.parse(String(b.created_at))) || String(a.id).localeCompare(String(b.id))).slice(0, limit);
@@ -215,7 +282,7 @@ export class TraceShardStore {
     const rows = database.prepare(`SELECT r.* FROM records r JOIN
       (SELECT id,MAX(version) version FROM records WHERE kind=? AND json_extract(payload_json,'$.trace_id')=? GROUP BY id) latest
       ON latest.id=r.id AND latest.version=r.version WHERE r.kind=? ORDER BY r.id`).all(kind, traceId, kind) as Array<Record<string, unknown>>;
-    return rows.map(record);
+    return rows.map(row => record(row, this.payload(row)));
   }
 
   retentionCandidates(cutoff: string, limit: number): JsonObject[] {
@@ -228,7 +295,7 @@ export class TraceShardStore {
         AND COALESCE(json_extract(r.payload_json,'$.last_event_at'),r.updated_at,json_extract(r.payload_json,'$.started_at')) < ?
         ORDER BY COALESCE(json_extract(r.payload_json,'$.last_event_at'),r.updated_at,json_extract(r.payload_json,'$.started_at')) ASC LIMIT ?`)
         .all(cutoff, limit) as Array<Record<string, unknown>>;
-      candidates.push(...rows.map(record));
+      candidates.push(...rows.map(row => record(row, this.payload(row))));
     }
     return candidates.sort((a, b) => String(a.last_event_at ?? a.updated_at).localeCompare(String(b.last_event_at ?? b.updated_at))).slice(0, limit);
   }
@@ -253,9 +320,14 @@ export class TraceShardStore {
         .get(stream) as { sequence: number }).sequence);
       const created_at = new Date().toISOString();
       database.prepare("INSERT INTO events(stream,sequence,event_type,payload_json,created_at) VALUES(?,?,?,?,?)")
-        .run(stream, sequence, eventType, JSON.stringify(payload), created_at);
+        .run(stream, sequence, eventType, JSON.stringify(this.#recordFiles?.write(`event:${eventType}`, stream, sequence, payload, created_at, created_at, "jsonl") ?? payload), created_at);
       return { stream, sequence, event_type: eventType, payload, created_at };
     });
+  }
+
+  hasEvent(traceId: string, sequence: number): boolean {
+    const database = this.database(this.shard(traceId), false);
+    return Boolean(database?.prepare("SELECT 1 FROM events WHERE stream=? AND sequence=?").get(`trace:${traceId}`, sequence));
   }
 
   events(traceId: string, limit?: number): JsonObject[] {
@@ -264,7 +336,7 @@ export class TraceShardStore {
     if (!database) return [];
     return (database.prepare("SELECT * FROM events WHERE stream=? ORDER BY sequence LIMIT ?").all(`trace:${traceId}`, limit ?? -1) as Array<Record<string, unknown>>)
       .map(row => ({ stream: row.stream, sequence: row.sequence, event_type: row.event_type,
-        payload: JSON.parse(String(row.payload_json)), created_at: row.created_at }));
+        payload: this.#recordFiles?.payload(`event:${row.event_type}`, String(row.stream), Number(row.sequence), JSON.parse(String(row.payload_json)) as JsonObject) ?? JSON.parse(String(row.payload_json)), created_at: row.created_at }));
   }
 
   /** Idempotent copy for offline migration. Exact raw row comparison preserves every historical version. */
@@ -274,19 +346,19 @@ export class TraceShardStore {
       const readRecord = database.prepare("SELECT kind,id,version,payload_json,created_at,updated_at FROM records WHERE kind=? AND id=? AND version=?");
       const insertRecord = database.prepare("INSERT INTO records(kind,id,version,payload_json,created_at,updated_at) VALUES(?,?,?,?,?,?)");
       for (const row of records) {
-        const owner = row.kind === "trace" || row.kind === "trace_archive" ? row.id : (JSON.parse(row.payload_json) as JsonObject).trace_id;
+        const owner = row.kind === "trace" || row.kind === "trace_archive" ? row.id : this.payload(row).trace_id;
         if (!TRACE_KINDS.has(row.kind) || owner !== traceId) throw new Error("Trace migration record has a different owner");
         const current = readRecord.get(row.kind, row.id, row.version);
-        if (current) { if (JSON.stringify(current) !== JSON.stringify(row)) throw new Error("Trace migration record conflicts with shard"); }
-        else insertRecord.run(row.kind, row.id, row.version, row.payload_json, row.created_at, row.updated_at);
+        if (current) { if (JSON.stringify(this.logicalRow(current)) !== JSON.stringify(this.logicalRow(row))) throw new Error("Trace migration record conflicts with shard"); }
+        else insertRecord.run(row.kind, row.id, row.version, this.stored(row), row.created_at, row.updated_at);
       }
       const readEvent = database.prepare("SELECT stream,sequence,event_type,payload_json,created_at FROM events WHERE stream=? AND sequence=?");
       const insertEvent = database.prepare("INSERT INTO events(stream,sequence,event_type,payload_json,created_at) VALUES(?,?,?,?,?)");
       for (const row of events) {
         if (row.stream !== `trace:${traceId}`) throw new Error("Trace migration stream has a different owner");
         const current = readEvent.get(row.stream, row.sequence);
-        if (current) { if (JSON.stringify(current) !== JSON.stringify(row)) throw new Error("Trace migration event conflicts with shard"); }
-        else insertEvent.run(row.stream, row.sequence, row.event_type, row.payload_json, row.created_at);
+        if (current) { if (JSON.stringify(this.eventRow(current)) !== JSON.stringify(this.eventRow(row))) throw new Error("Trace migration event conflicts with shard"); }
+        else insertEvent.run(row.stream, row.sequence, row.event_type, this.storedEvent(row), row.created_at);
       }
     });
   }

@@ -3,5 +3,5 @@ packages:
 linkWorkspacePackages: false
 excludeLinksFromLockfile: false
 minimumReleaseAgeExclude:
-  - craft-common-base@0.20.4
-  - craft-common-store-local@0.20.4
+  - 'craft-common-store-local@0.21.0'
+  - 'craft-common-base@0.20.5'

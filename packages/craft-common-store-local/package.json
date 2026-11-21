@@ -1,6 +1,6 @@
 {
   "name": "craft-common-store-local",
-  "version": "0.20.4",
+  "version": "0.21.0",
   "description": "Versioned SQLite and Markdown local persistence with Craft-compatible paths",
   "type": "module",
   "main": "./dist/index.js",
@@ -41,6 +41,10 @@
     "./store-schema": {
       "types": "./dist/store-schema.d.ts",
       "default": "./dist/store-schema.js"
+    },
+    "./record-files": {
+      "types": "./dist/record-files.d.ts",
+      "default": "./dist/record-files.js"
     },
     "./store": {
       "types": "./dist/store.d.ts",

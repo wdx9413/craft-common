@@ -144,6 +144,8 @@ export function observedKernel<T extends object>(store: CraftStore, component: s
   return new Proxy(kernel, { get(target, key) {
     const value: unknown = Reflect.get(target, key, target);
     if (typeof value !== "function" || key === "constructor") return value;
+    // Wiring read ports is configuration, not a user operation or validation receipt.
+    if (["setEvaluationVerifier", "setProgramMemorySource", "setEvaluationContractSource", "setReferenceSources"].includes(String(key))) return value.bind(target);
     let method = methods.get(key);
     if (!method) {
       method = (...args: unknown[]) => observeOperation(store, component, `${target.constructor.name}.${String(key)}`, args, () => Reflect.apply(value, target, args));

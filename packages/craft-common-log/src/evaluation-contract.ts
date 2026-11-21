@@ -91,11 +91,22 @@ export interface EvaluationContractInput {
 
 function stageIndex(stage: EvaluationStage): number { return EVALUATION_STAGES.indexOf(stage); }
 
+type EvaluationReadStore = Pick<CraftStore, "get" | "list">;
+
 export class EvaluationContractKernel {
+  private referenceReader: EvaluationReadStore;
+  /** Exact record kinds are resolved by their authority; writes always use the Eval store. */
+  setReferenceSources(sources: ReadonlyMap<string, EvaluationReadStore>): void {
+    this.referenceReader = {
+      get: (...args) => (sources.get(args[0]) ?? this.store).get(...args),
+      list: (...args) => (sources.get(args[0]) ?? this.store).list(...args),
+    };
+  }
   readonly store: CraftStore;
   readonly trustedEvaluators: readonly TrustedEvaluatorIdentity[];
   constructor(store: CraftStore, trustedEvaluators: readonly TrustedEvaluatorIdentity[] = parseTrustedEvaluatorRegistry()) {
     this.store = store;
+    this.referenceReader = store;
     this.trustedEvaluators = trustedEvaluators.map(entry => ({ ...entry }));
   }
 
@@ -109,7 +120,7 @@ export class EvaluationContractKernel {
   define(input: EvaluationContractInput & { contract_id?: string }): JsonObject {
     if (!input.capability_id.trim() || !Number.isInteger(input.capability_version) || input.capability_version < 1 || !input.input_contract.trim() || !input.output_contract.trim()) throw new Error("Evaluation Contract requires capability and IO contracts");
     if (input.effect === "task_effect") {
-      validateTaskEffectContract(input.task_effect, this.store);
+      validateTaskEffectContract(input.task_effect, this.referenceReader);
       this.assertTrustedEvaluator(input.task_effect!.evaluator);
     }
     if (input.effect !== "task_effect" && input.task_effect !== undefined) throw new Error("Task-effect contract requires effect=task_effect");
@@ -125,9 +136,9 @@ export class EvaluationContractKernel {
     return { contract: this.store.create("evaluation_contract", id, payload), idempotent: false };
   }
 
-  artifactRef(kind: string, id: string, version: number): EvaluationRecordRef { return artifactRef(this.store, { kind, id, version }); }
-  taskRef(id: string, version: number): EvaluationRecordRef { return taskRef(this.store, { kind: "task", id, version }); }
-  hostSessionRef(id: string, version: number): EvaluationRecordRef { return hostSessionRef(this.store, { kind: "host_session", id, version }); }
+  artifactRef(kind: string, id: string, version: number): EvaluationRecordRef { return artifactRef(this.referenceReader, { kind, id, version }); }
+  taskRef(id: string, version: number): EvaluationRecordRef { return taskRef(this.referenceReader, { kind: "task", id, version }); }
+  hostSessionRef(id: string, version: number): EvaluationRecordRef { return hostSessionRef(this.referenceReader, { kind: "host_session", id, version }); }
 
   verifyTaskEffectEvaluation(input: { contract_id: string; evaluation_id: string; candidate_ref?: EvaluationRecordRef }): JsonObject {
     const contract = this.store.get("evaluation_contract", input.contract_id);
@@ -135,13 +146,13 @@ export class EvaluationContractKernel {
     if (contract.effect !== "task_effect" || !report || report.contract_id !== contract.id || report.contract_digest !== contract.contract_digest) {
       return { valid: false, eligible: false, routeable: false, contract_id: contract.id, evaluation_id: input.evaluation_id };
     }
-    const spec = requireTaskEffectContract(contract.task_effect, this.store);
+    const spec = requireTaskEffectContract(contract.task_effect, this.referenceReader);
     try { this.assertTrustedEvaluator(spec.evaluator); } catch {
       return { valid: false, eligible: false, routeable: false, contract_id: contract.id, evaluation_id: input.evaluation_id,
         reason: "untrusted_evaluator" };
     }
     const candidateMatches = input.candidate_ref === undefined || isRecordRef(report.candidate_ref) && sameRef(input.candidate_ref, report.candidate_ref);
-    const valid = candidateMatches && validTaskEffectEvaluation(this.store, spec, report);
+    const valid = candidateMatches && validTaskEffectEvaluation(this.referenceReader, spec, report);
     return { valid, eligible: valid && (report.result as JsonObject | undefined)?.eligible === true,
       routeable: valid && (report.result as JsonObject | undefined)?.eligible === true && contract.verified_stage === "routeable", contract_id: contract.id, contract_digest: contract.contract_digest,
       evaluation_id: String(report.id), evaluation_digest: report.evaluation_digest, candidate_ref: report.candidate_ref,
@@ -152,15 +163,15 @@ export class EvaluationContractKernel {
     const input = parseTaskEffectEvaluationInput(rawInput);
     const contract = this.store.get("evaluation_contract", input.contract_id);
     if (contract.effect !== "task_effect" || !contract.task_effect) throw new Error("Task-effect evaluation requires a task-effect contract");
-    const spec = requireTaskEffectContract(contract.task_effect, this.store);
+    const spec = requireTaskEffectContract(contract.task_effect, this.referenceReader);
     this.assertTrustedEvaluator(spec.evaluator);
     if (this.store.find("task_effect_evaluation", input.evaluation_id)) throw new Error("Task-effect evaluation id already exists");
-    assertArtifactRef(this.store, input.candidate_ref, spec.candidate_family);
+    assertArtifactRef(this.referenceReader, input.candidate_ref, spec.candidate_family);
     if (!sameRef(input.candidate_ref, spec.candidate_ref)) throw new Error("Evaluation candidate differs from the frozen candidate version");
     if (digestJson(input.evaluator) !== digestJson(spec.evaluator)) throw new Error("Evaluation Contract evaluator mismatch");
     if (!input.candidate_source_task_refs.length || new Set(input.candidate_source_task_refs.map(ref => `${ref.kind}/${ref.id}@${ref.version}`)).size !== input.candidate_source_task_refs.length ||
-      input.candidate_source_task_refs.some(ref => !spec.task_set.development_task_refs.some(item => sameRef(item, ref)) || !validTaskRef(this.store, ref))) throw new Error("Development source tasks must be exact stored task versions");
-    if (!validHeldOutPairs(this.store, spec, input.pairs))
+      input.candidate_source_task_refs.some(ref => !spec.task_set.development_task_refs.some(item => sameRef(item, ref)) || !validTaskRef(this.referenceReader, ref))) throw new Error("Development source tasks must be exact stored task versions");
+    if (!validHeldOutPairs(this.referenceReader, spec, input.pairs))
       throw new Error("Evaluation must contain exactly the frozen held-out pairs; every pair must use an exact stored Host task and distinct completed-session receipts for both arms");
     const { evaluator_signature, ...signedInput } = input;
     const receiptDigest = digestJson({ contract_digest: contract.contract_digest, ...signedInput });
@@ -189,7 +200,7 @@ export class EvaluationContractKernel {
       const taskEvaluation = this.store.find("task_effect_evaluation", id);
       if (current.effect === "task_effect" && (input.stage === "business_eligible" || input.stage === "routeable")) {
         return Boolean(taskEvaluation && (taskEvaluation.result as JsonObject | undefined)?.eligible === true && taskEvaluation.contract_id === input.contract_id && taskEvaluation.contract_digest === current.contract_digest &&
-          validTaskEffectEvaluation(this.store, requireTaskEffectContract(current.task_effect, this.store), taskEvaluation));
+          validTaskEffectEvaluation(this.referenceReader, requireTaskEffectContract(current.task_effect, this.referenceReader), taskEvaluation));
       }
       const assessment = this.store.find("verification_assessment", id);
       if (!assessment || assessment.verdict !== "eligible") return false;
@@ -221,12 +232,12 @@ export class EvaluationContractKernel {
   }
 }
 
-function requireTaskEffectContract(value: unknown, store: CraftStore): TaskEffectContract {
+function requireTaskEffectContract(value: unknown, store: EvaluationReadStore): TaskEffectContract {
   validateTaskEffectContract(value, store);
   return value;
 }
 
-function validateTaskEffectContract(value: unknown, store: CraftStore): asserts value is TaskEffectContract {
+function validateTaskEffectContract(value: unknown, store: EvaluationReadStore): asserts value is TaskEffectContract {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Task-effect contract must be an object");
   const spec = value as TaskEffectContract;
   if (typeof spec.candidate_family !== "string" || !spec.candidate_family.trim() || (spec.cohort_id !== undefined && (typeof spec.cohort_id !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/u.test(spec.cohort_id))) || !isRecordRef(spec.baseline_ref) || !isRecordRef(spec.candidate_ref) || spec.baseline_ref.kind !== spec.candidate_family || spec.candidate_ref.kind !== spec.candidate_family ||
@@ -290,12 +301,12 @@ function taskDigest(record: JsonObject): string {
   const payload = Object.fromEntries(Object.entries(record).filter(([key]) => !["id", "version", "created_at", "updated_at"].includes(key)).sort(([a], [b]) => a.localeCompare(b)));
   return digestJson({ kind: "task", id: record.id, version: record.version, payload });
 }
-function taskRef(store: CraftStore, requested: Pick<EvaluationRecordRef, "kind" | "id" | "version">): EvaluationRecordRef {
+function taskRef(store: EvaluationReadStore, requested: Pick<EvaluationRecordRef, "kind" | "id" | "version">): EvaluationRecordRef {
   if (requested.kind !== "task") throw new Error("Task reference kind must be task");
   const record = store.get("task", requested.id, requested.version);
   return { kind: "task", id: String(record.id), version: Number(record.version), digest: taskDigest(record) };
 }
-function validTaskRef(store: CraftStore, ref: EvaluationRecordRef): boolean {
+function validTaskRef(store: EvaluationReadStore, ref: EvaluationRecordRef): boolean {
   try { return isRecordRef(ref) && sameRef(taskRef(store, ref), ref); } catch { return false; }
 }
 function artifactDigest(record: JsonObject): string | null {
@@ -305,13 +316,13 @@ function artifactDigest(record: JsonObject): string | null {
   }
   return null;
 }
-function artifactRef(store: CraftStore, requested: Pick<EvaluationRecordRef, "kind" | "id" | "version">): EvaluationRecordRef {
+function artifactRef(store: EvaluationReadStore, requested: Pick<EvaluationRecordRef, "kind" | "id" | "version">): EvaluationRecordRef {
   if (typeof requested.kind !== "string" || !requested.kind.trim() || typeof requested.id !== "string" || !requested.id.trim() || !Number.isSafeInteger(requested.version) || requested.version < 1) throw new Error("Artifact reference must bind kind, id and version");
   const record = store.get(requested.kind, requested.id, requested.version), digest = artifactDigest(record);
   if (!digest) throw new Error("Candidate artifact record has no stable content or definition digest");
   return { kind: requested.kind, id: String(record.id), version: Number(record.version), digest };
 }
-function assertArtifactRef(store: CraftStore, ref: EvaluationRecordRef, expectedKind: string): void {
+function assertArtifactRef(store: EvaluationReadStore, ref: EvaluationRecordRef, expectedKind: string): void {
   if (!isRecordRef(ref) || ref.kind !== expectedKind || !sameRef(artifactRef(store, ref), ref)) throw new Error("Candidate artifact reference does not match the exact stored version and digest");
 }
 function hostIdentity(session: JsonObject) {
@@ -332,7 +343,7 @@ function traceEventIdentity(event: JsonObject) {
     usage: event.usage ?? null, cost_usd: event.cost_usd ?? null, duration_ms: event.duration_ms ?? null, error_class: event.error_class ?? null,
     status: event.status ?? null, summary: event.summary ?? null, data_digest: event.data_digest, content_stored: event.content_stored };
 }
-function hostSessionRef(store: CraftStore, requested: Pick<EvaluationRecordRef, "kind" | "id" | "version">): EvaluationRecordRef {
+function hostSessionRef(store: EvaluationReadStore, requested: Pick<EvaluationRecordRef, "kind" | "id" | "version">): EvaluationRecordRef {
   if (requested.kind !== "host_session") throw new Error("Host session reference kind must be host_session");
   const session = store.get("host_session", requested.id, requested.version), identity = hostIdentity(session);
   if (session.identity_digest !== digestJson(identity) || session.status !== "terminal") throw new Error("Host session identity or terminal status is invalid");
@@ -347,13 +358,13 @@ function hostSessionRef(store: CraftStore, requested: Pick<EvaluationRecordRef, 
     host_event: { id: receipt.id, version: receipt.version, event_digest: receipt.event_digest }, trace_event: { id: traceEvent.id, version: traceEvent.version, event_digest: traceEvent.event_digest } });
   return { kind: "host_session", id: String(session.id), version: Number(session.version), digest };
 }
-function validHostSessionRef(store: CraftStore, ref: EvaluationRecordRef, task: EvaluationRecordRef, environmentFingerprint: string): boolean {
+function validHostSessionRef(store: EvaluationReadStore, ref: EvaluationRecordRef, task: EvaluationRecordRef, environmentFingerprint: string): boolean {
   try {
     const resolved = hostSessionRef(store, ref), session = store.get("host_session", ref.id, ref.version);
     return sameRef(resolved, ref) && session.task_id === task.id && session.environment_fingerprint === environmentFingerprint;
   } catch { return false; }
 }
-function validHeldOutPairs(store: CraftStore, spec: TaskEffectContract, pairs: TaskEffectPair[]): boolean {
+function validHeldOutPairs(store: EvaluationReadStore, spec: TaskEffectContract, pairs: TaskEffectPair[]): boolean {
   const expected = expectedTaskEffectPairKeys(spec.task_set.held_out_task_refs, spec.sample_plan.repeats_per_task);
   const actual = pairs.map(pair => actualTaskEffectPairKey(pair)).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) return false;
@@ -374,7 +385,7 @@ function computeTaskEffectResult(spec: TaskEffectContract, pairs: TaskEffectPair
     primary_metric: primary.name, baseline, candidate, delta, latency_ms: latency, cost, regressions_pass: regressionsPass, hard_assertions_pass: hardAssertionsPass };
 }
 
-function validTaskEffectEvaluation(store: CraftStore, spec: TaskEffectContract, report: JsonObject): boolean {
+function validTaskEffectEvaluation(store: EvaluationReadStore, spec: TaskEffectContract, report: JsonObject): boolean {
   try {
     const pairs = report.pairs as TaskEffectPair[], sourceRefs = report.candidate_source_task_refs as EvaluationRecordRef[];
     if (!Array.isArray(pairs) || !Array.isArray(sourceRefs) || sourceRefs.length === 0 || sourceRefs.some(ref => !spec.task_set.development_task_refs.some(item => sameRef(item, ref)) || !validTaskRef(store, ref))) return false;

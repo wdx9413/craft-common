@@ -11,8 +11,8 @@ importers:
   packages/craft-common-base:
     dependencies:
       craft-common-store-local:
-        specifier: 0.20.4
-        version: 0.20.4
+        specifier: 0.21.0
+        version: 0.21.0
     devDependencies:
       '@types/node':
         specifier: '>=23 <26'
@@ -24,11 +24,11 @@ importers:
   packages/craft-common-log:
     dependencies:
       craft-common-base:
-        specifier: 0.20.4
-        version: 0.20.4
+        specifier: 0.20.5
+        version: 0.20.5
       craft-common-store-local:
-        specifier: 0.20.4
-        version: 0.20.4
+        specifier: 0.21.0
+        version: 0.21.0
     devDependencies:
       '@types/node':
         specifier: '>=23 <26'
@@ -60,12 +60,12 @@ packages:
   '@types/node@25.9.9':
     resolution: {integrity: sha512-b4e2xxj/yMeT2hNlD6x7zNFiQK2Dlmkb9CQ6v3/1G2RezKN4YS2lcEv8lzGm1mhs4f2lM4yNAMI/zUDBZBBt7w==}
 
-  craft-common-base@0.20.4:
-    resolution: {integrity: sha512-JDBy6TW2UxOtIb33UkVkRbMaumiJN2GSPx9GRDTVLYStJ4g3WibfuAAh9P+8vlkULYnA3gVlY2wF6v83Glc9Xg==}
+  craft-common-base@0.20.5:
+    resolution: {integrity: sha512-iRoEOYtaa7KfFvR5FrcIYTKksqdtQjLcs3VeFHw6Suw/VEy7zWMOQ/GXo6BHIfdBNdrvHTnKZ4ne7wTBJ0F7Aw==}
     engines: {node: '>=23'}
 
-  craft-common-store-local@0.20.4:
-    resolution: {integrity: sha512-gTSFxbANgWIiRRtwJfIFmdhesRclPOoPQ9Hhr4eyhsPvEmBqx7Rf7uJn7reVUdx/oH95n2qn+bZJSAiqNr1uYw==}
+  craft-common-store-local@0.21.0:
+    resolution: {integrity: sha512-297Tr62Evyw0JnG31DS7uvFH9tiMXaiwWU2xngwcqOXxYpobhqfBbcrRwS5mPn/E+AjY8xVWnLEbz5IfYuS4AQ==}
     engines: {node: '>=23'}
 
   typescript@6.0.3:
@@ -82,11 +82,11 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
-  craft-common-base@0.20.4:
+  craft-common-base@0.20.5:
     dependencies:
-      craft-common-store-local: 0.20.4
+      craft-common-store-local: 0.21.0
 
-  craft-common-store-local@0.20.4: {}
+  craft-common-store-local@0.21.0: {}
 
   typescript@6.0.3: {}
 

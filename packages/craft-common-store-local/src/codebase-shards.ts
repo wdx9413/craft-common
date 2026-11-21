@@ -1,6 +1,7 @@
+import { RecordFileStore, recordMetadata } from "./record-files.ts";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { sqliteBusyTimeoutMs } from "./sqlite-busy-timeout.ts";
 import type { JsonObject } from "./store.ts";
@@ -12,7 +13,28 @@ const RESERVED = new Set(["id", "version", "created_at", "updated_at"]);
 
 /** Legacy Codebase graph records retain their original storage format in 16 small WAL databases. */
 export class CodebaseShardStore {
-  readonly directory: string;
+  directory: string;
+  #recordFiles: RecordFileStore | null = null;
+  configureRecordFiles(files: RecordFileStore, ownerRecords = false): void {
+    this.close(); this.#recordFiles = files;
+    if (ownerRecords) this.directory = join(dirname(join(files.root, files.directory)), "codebase", "legacy-graph-v1");
+  }
+
+  private payload(row: Record<string, unknown>): JsonObject {
+    const payload = JSON.parse(String(row.payload_json)) as JsonObject;
+    return this.#recordFiles?.payload(String(row.kind), String(row.id), Number(row.version), payload) ?? payload;
+  }
+
+  private logicalRow(row: Record<string, unknown>): Record<string, unknown> {
+    return { kind: row.kind, id: row.id, version: row.version, payload_json: this.#recordFiles ? JSON.stringify(this.payload(row)) : row.payload_json, created_at: row.created_at, updated_at: row.updated_at };
+  }
+
+  private stored(row: Record<string, unknown>): string {
+    if (!this.#recordFiles) return String(row.payload_json);
+    const indexed = JSON.parse(String(row.payload_json)) as JsonObject;
+    if (indexed._record_file !== undefined) { this.payload(row); return String(row.payload_json); }
+    return JSON.stringify(this.#recordFiles.write(String(row.kind), String(row.id), Number(row.version), JSON.parse(String(row.payload_json)) as JsonObject, String(row.created_at), String(row.updated_at)));
+  }
   #databases = new Map<string, DatabaseSync>();
 
   constructor(dataRoot: string) { this.directory = join(dataRoot, "codebase", "legacy-graph-v1"); }
@@ -53,6 +75,9 @@ export class CodebaseShardStore {
         created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(kind,id,version));
         CREATE INDEX records_latest ON records(kind,id,version DESC);`);
       }
+      const fileMode = database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='record_file_mode'").get();
+      if (fileMode && !this.#recordFiles) throw new Error("File-backed shard requires its owner record file store");
+      if (create && this.#recordFiles && !fileMode) database.exec("CREATE TABLE record_file_mode(version TEXT NOT NULL CHECK(version='v1')); INSERT INTO record_file_mode VALUES('v1')");
     } catch (error) { database.close(); throw error; }
     this.#databases.set(key, database);
     return database;
@@ -71,15 +96,32 @@ export class CodebaseShardStore {
     if (!CODEBASE_GRAPH_KINDS.has(kind)) throw new Error("Unsupported Codebase graph kind");
     const database = this.database(id, false);
     if (!database) return null;
-    return (version === undefined
+    const row = (version === undefined
       ? database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id)
-      : database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version=?").get(kind, id, version)) as GraphRow | undefined ?? null;
+      : database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version=?").get(kind, id, version)) as GraphRow | undefined;
+    return row ? { ...row, payload_json: JSON.stringify(this.payload(row)) } : null;
+  }
+
+  findMetadata(kind: string, id: string, version?: number): JsonObject | null {
+    const database = this.database(id, false);
+    if (!database) return null;
+    const row = version === undefined
+      ? database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id)
+      : database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version=?").get(kind, id, version);
+    return row ? { ...recordMetadata(kind, JSON.parse(String(row.payload_json))), id: row.id, version: row.version, created_at: row.created_at, updated_at: row.updated_at } : null;
   }
 
   find(kind: string, id: string, version?: number): JsonObject | null {
     const row = this.raw(kind, id, version);
-    return row ? { ...JSON.parse(row.payload_json) as JsonObject, id: row.id, version: row.version,
+    return row ? { ...this.payload(row), id: row.id, version: row.version,
       created_at: row.created_at, updated_at: row.updated_at } : null;
+  }
+
+  historyMetadata(kind: string, id: string, before: number, limit: number): JsonObject[] {
+    const database = this.database(id, false);
+    if (!database) return [];
+    return database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version<? ORDER BY version DESC LIMIT ?").all(kind, id, before, limit)
+      .map(row => ({ ...recordMetadata(kind, JSON.parse(String(row.payload_json))), id: row.id, version: row.version, created_at: row.created_at, updated_at: row.updated_at }));
   }
 
   history(kind: string, id: string, before: number, limit: number): JsonObject[] {
@@ -87,7 +129,7 @@ export class CodebaseShardStore {
     const database = this.database(id, false);
     if (!database) return [];
     return (database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version<? ORDER BY version DESC LIMIT ?")
-      .all(kind, id, before, limit) as GraphRow[]).map(row => ({ ...JSON.parse(row.payload_json) as JsonObject,
+      .all(kind, id, before, limit) as GraphRow[]).map(row => ({ ...this.payload(row),
       id: row.id, version: row.version, created_at: row.created_at, updated_at: row.updated_at }));
   }
 
@@ -101,7 +143,7 @@ export class CodebaseShardStore {
         .get(kind, id) as { n: number }).n);
       const now = new Date().toISOString();
       database.prepare("INSERT INTO records(kind,id,version,payload_json,created_at,updated_at) VALUES(?,?,?,?,?,?)")
-        .run(kind, id, next, JSON.stringify(payload), now, now);
+        .run(kind, id, next, this.stored({ kind, id, version: next, payload_json: JSON.stringify(payload), created_at: now, updated_at: now }), now, now);
       database.exec("COMMIT");
       return { ...payload, id, version: next, created_at: now, updated_at: now };
     } catch (error) { database.exec("ROLLBACK"); throw error; }
@@ -116,8 +158,8 @@ export class CodebaseShardStore {
       for (const row of rows) {
         if (!CODEBASE_GRAPH_KINDS.has(row.kind) || row.id !== id) throw new Error("Codebase migration record has a different owner");
         const current = read.get(row.kind, row.id, row.version);
-        if (current) { if (JSON.stringify(current) !== JSON.stringify(row)) throw new Error("Codebase migration record conflicts with shard"); }
-        else insert.run(row.kind, row.id, row.version, row.payload_json, row.created_at, row.updated_at);
+        if (current) { if (JSON.stringify(this.logicalRow(current)) !== JSON.stringify(this.logicalRow(row))) throw new Error("Codebase migration record conflicts with shard"); }
+        else insert.run(row.kind, row.id, row.version, this.stored(row), row.created_at, row.updated_at);
       }
       database.exec("COMMIT");
     } catch (error) { database.exec("ROLLBACK"); throw error; }
@@ -131,7 +173,7 @@ export class CodebaseShardStore {
         ON r.id=latest.id AND r.version=latest.version WHERE r.kind=? ORDER BY r.updated_at DESC ${predicate ? "" : "LIMIT ?"}`)
         .all(kind, kind, ...(predicate ? [] : [limit])) as GraphRow[];
       for (const row of rows) {
-        const value = { ...JSON.parse(row.payload_json) as JsonObject, id: row.id, version: row.version,
+        const value = { ...this.payload(row), id: row.id, version: row.version,
           created_at: row.created_at, updated_at: row.updated_at };
         if (!predicate || predicate(value)) values.push(value);
       }
