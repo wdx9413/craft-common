@@ -1543,7 +1543,8 @@ export class CraftStore {
       }
       const last = page.at(-1), hasMore = rows.length > limit;
       return { status: blocked.length ? "blocked" : hasMore ? "partial" : "completed", phase: "owner_records", examined: page.length,
-        migratable: 0, migrated: 0, skipped, blocked, has_more: hasMore,
+        migratable: 0, migrated: 0, skipped, ...blockedSummary(blocked, summaryOnly), summary_only: summaryOnly,
+        has_more: hasMore,
         next_cursor: hasMore && last ? Buffer.from(JSON.stringify([last.kind, last.id, last.version])).toString("base64url") : null,
         dry_run: args.dry_run === true, raw_content_stored: false };
     }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { RecordFileStore } from "../src/record-files.ts";
-import { CraftStore } from "../src/store.ts";
+import { CraftStore, type JsonObject } from "../src/store.ts";
 import { craftPaths, sessionStorageScopeId } from "../src/paths.ts";
 
 test("file-backed Knowledge revisions retain their public behavior and keep full payloads outside SQLite", async () => {
@@ -374,6 +374,21 @@ test("owner catalogs commit identical source identities independently without le
     memory.create("knowledge_source", "builtin", { scope: "global", label: "Memory source." });
     assert.equal(knowledge.get("knowledge_source", "builtin").label, "Knowledge source.");
     assert.equal(memory.get("knowledge_source", "builtin").label, "Memory source.");
+    const knowledgeSourcePointer = JSON.parse(String(knowledge.database.prepare("SELECT payload_json FROM records WHERE kind='knowledge_source' AND id='builtin'").get()!.payload_json)) as JsonObject;
+    const knowledgeSourcePath = join(root, String((knowledgeSourcePointer._record_file as JsonObject).path));
+    const originalKnowledgeSource = readFileSync(knowledgeSourcePath, "utf8");
+    const compact = knowledge.reconcileKnowledgeStorage({ summary_only: true });
+    assert.equal(compact.summary_only, true);
+    assert.equal(compact.blocked_count, 0);
+    assert.deepEqual(compact.blocked_reasons, {});
+    assert.deepEqual(compact.blocked, []);
+    writeFileSync(knowledgeSourcePath, "damaged owner record");
+    const compactBlocked = knowledge.reconcileKnowledgeStorage({ summary_only: true });
+    assert.equal(compactBlocked.status, "blocked");
+    assert.equal(compactBlocked.blocked_count, 1);
+    assert.deepEqual(compactBlocked.blocked_reasons, { owner_record_verification_failed: 1 });
+    assert.deepEqual(compactBlocked.blocked, []);
+    writeFileSync(knowledgeSourcePath, originalKnowledgeSource);
     const indexed = JSON.parse(String(memory.database.prepare("SELECT payload_json FROM records WHERE kind='knowledge_source'").get()!.payload_json));
     assert(indexed._record_file.path.startsWith("memory/records/"));
     assert.equal(indexed._knowledge_partition, undefined);
