@@ -91,16 +91,32 @@ export interface EvaluationContractInput {
 
 function stageIndex(stage: EvaluationStage): number { return EVALUATION_STAGES.indexOf(stage); }
 
-type EvaluationReadStore = Pick<CraftStore, "get" | "list">;
+export type EvaluationReadStore = Pick<CraftStore, "get" | "list">;
 
 export class EvaluationContractKernel {
   private referenceReader: EvaluationReadStore;
-  /** Exact record kinds are resolved by their authority; writes always use the Eval store. */
+  private readonly referenceSources = new Map<string, EvaluationReadStore>();
+  private referenceSourcesConfigured = false;
+  private referencesStarted = false;
+  /** Configured kinds must resolve through their authority; an omitted kind never silently falls back to Eval. */
   setReferenceSources(sources: ReadonlyMap<string, EvaluationReadStore>): void {
-    this.referenceReader = {
-      get: (...args) => (sources.get(args[0]) ?? this.store).get(...args),
-      list: (...args) => (sources.get(args[0]) ?? this.store).list(...args),
+    if (this.referencesStarted) throw new Error("Evaluation reference sources must be configured before task-effect references are read");
+    for (const [kind, source] of new Map(sources)) {
+      if (typeof kind !== "string" || !kind.trim() || !source || typeof source.get !== "function" || typeof source.list !== "function") {
+        throw new Error("Reference source must bind a record kind to a readable store");
+      }
+      const existing = this.referenceSources.get(kind);
+      if (existing && existing !== source) throw new Error(`Evaluation reference source is already configured for ${kind}`);
+      this.referenceSources.set(kind, source);
+    }
+    this.referenceSourcesConfigured = true;
+    const resolve = (kind: string): EvaluationReadStore => {
+      const source = this.referenceSources.get(kind);
+      if (source) return source;
+      if (this.referenceSourcesConfigured) throw new Error(`Evaluation reference source is not configured for ${kind}`);
+      return this.store;
     };
+    this.referenceReader = { get: (...args) => resolve(args[0]).get(...args), list: (...args) => resolve(args[0]).list(...args) };
   }
   readonly store: CraftStore;
   readonly trustedEvaluators: readonly TrustedEvaluatorIdentity[];
@@ -120,6 +136,7 @@ export class EvaluationContractKernel {
   define(input: EvaluationContractInput & { contract_id?: string }): JsonObject {
     if (!input.capability_id.trim() || !Number.isInteger(input.capability_version) || input.capability_version < 1 || !input.input_contract.trim() || !input.output_contract.trim()) throw new Error("Evaluation Contract requires capability and IO contracts");
     if (input.effect === "task_effect") {
+      this.referencesStarted = true;
       validateTaskEffectContract(input.task_effect, this.referenceReader);
       this.assertTrustedEvaluator(input.task_effect!.evaluator);
     }
@@ -136,11 +153,12 @@ export class EvaluationContractKernel {
     return { contract: this.store.create("evaluation_contract", id, payload), idempotent: false };
   }
 
-  artifactRef(kind: string, id: string, version: number): EvaluationRecordRef { return artifactRef(this.referenceReader, { kind, id, version }); }
-  taskRef(id: string, version: number): EvaluationRecordRef { return taskRef(this.referenceReader, { kind: "task", id, version }); }
-  hostSessionRef(id: string, version: number): EvaluationRecordRef { return hostSessionRef(this.referenceReader, { kind: "host_session", id, version }); }
+  artifactRef(kind: string, id: string, version: number): EvaluationRecordRef { this.referencesStarted = true; return artifactRef(this.referenceReader, { kind, id, version }); }
+  taskRef(id: string, version: number): EvaluationRecordRef { this.referencesStarted = true; return taskRef(this.referenceReader, { kind: "task", id, version }); }
+  hostSessionRef(id: string, version: number): EvaluationRecordRef { this.referencesStarted = true; return hostSessionRef(this.referenceReader, { kind: "host_session", id, version }); }
 
   verifyTaskEffectEvaluation(input: { contract_id: string; evaluation_id: string; candidate_ref?: EvaluationRecordRef }): JsonObject {
+    this.referencesStarted = true;
     const contract = this.store.get("evaluation_contract", input.contract_id);
     const report = this.store.find("task_effect_evaluation", input.evaluation_id);
     if (contract.effect !== "task_effect" || !report || report.contract_id !== contract.id || report.contract_digest !== contract.contract_digest) {
@@ -160,6 +178,7 @@ export class EvaluationContractKernel {
   }
 
   recordTaskEffectEvaluation(rawInput: JsonObject): JsonObject {
+    this.referencesStarted = true;
     const input = parseTaskEffectEvaluationInput(rawInput);
     const contract = this.store.get("evaluation_contract", input.contract_id);
     if (contract.effect !== "task_effect" || !contract.task_effect) throw new Error("Task-effect evaluation requires a task-effect contract");

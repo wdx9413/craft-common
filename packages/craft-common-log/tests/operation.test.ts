@@ -271,3 +271,18 @@ test("observedKernel persists each public call through the store sink", async ()
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map(row => (row as { attributes: { stage: string } }).attributes.stage).sort(), ["completed", "started"]);
 });
+
+test("observedKernel caches and records configuration methods", async () => {
+  const opened = await store();
+  class Kernel {
+    configured = false;
+    setReferenceSources(): void { this.configured = true; }
+  }
+  const observed = observedKernel(opened, "kernel", new Kernel());
+  assert.equal(observed.setReferenceSources, observed.setReferenceSources);
+  observed.setReferenceSources();
+  assert.equal(observed.configured, true);
+  const rows = opened.list("telemetry_event", 10, item => item.capability_id === "kernel");
+  assert.equal(rows.length, 2);
+  assert(rows.every(item => item.operation === "Kernel.setReferenceSources"));
+});

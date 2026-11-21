@@ -77,7 +77,7 @@ export class CodebaseShardStore {
       }
       const fileMode = database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='record_file_mode'").get();
       if (fileMode && !this.#recordFiles) throw new Error("File-backed shard requires its owner record file store");
-      if (create && this.#recordFiles && !fileMode) database.exec("CREATE TABLE record_file_mode(version TEXT NOT NULL CHECK(version='v1')); INSERT INTO record_file_mode VALUES('v1')");
+      if (create && this.#recordFiles && !fileMode) database.exec("CREATE TABLE IF NOT EXISTS record_file_mode(version TEXT NOT NULL CHECK(version='v1')); INSERT OR IGNORE INTO record_file_mode VALUES('v1')");
     } catch (error) { database.close(); throw error; }
     this.#databases.set(key, database);
     return database;
@@ -99,10 +99,11 @@ export class CodebaseShardStore {
     const row = (version === undefined
       ? database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id)
       : database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version=?").get(kind, id, version)) as GraphRow | undefined;
-    return row ? { ...row, payload_json: JSON.stringify(this.payload(row)) } : null;
+    return row ?? null;
   }
 
   findMetadata(kind: string, id: string, version?: number): JsonObject | null {
+    if (!CODEBASE_GRAPH_KINDS.has(kind)) throw new Error("Unsupported Codebase graph kind");
     const database = this.database(id, false);
     if (!database) return null;
     const row = version === undefined
@@ -118,6 +119,7 @@ export class CodebaseShardStore {
   }
 
   historyMetadata(kind: string, id: string, before: number, limit: number): JsonObject[] {
+    if (!CODEBASE_GRAPH_KINDS.has(kind)) throw new Error("Unsupported Codebase graph kind");
     const database = this.database(id, false);
     if (!database) return [];
     return database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version<? ORDER BY version DESC LIMIT ?").all(kind, id, before, limit)

@@ -114,12 +114,23 @@ export class RecordFileStore {
     for (const part of ["", ...parts]) {
       current = join(current, part);
       let stat = lstatSync(current, { throwIfNoEntry: false });
-      if (!stat && writing) { mkdirSync(current, { mode: 0o700 }); stat = lstatSync(current); }
+      if (!stat && writing) {
+        mkdirSync(current, { mode: 0o700, recursive: true });
+        if (lstatSync(current, { throwIfNoEntry: false })) this.syncDirectory(dirname(current));
+        stat = lstatSync(current);
+      }
       if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error("Record file directory must be regular");
     }
   }
 
+  private syncDirectory(directory: string): void {
+    if (process.platform === "win32") return;
+    const fd = openSync(directory, constants.O_RDONLY);
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  }
+
   write(kind: string, id: string, version: number, payload: Payload, createdAt: string, updatedAt: string, format: "json" | "jsonl" = "json"): Payload {
+    if (!Number.isSafeInteger(version) || version < 1) throw new Error("Record file version must be a positive safe integer");
     const stored = this.withProse(kind, payload);
     const content = JSON.stringify({ schema: stored.prose_refs ? "craft.record-file.v2" : "craft.record-file.v1", kind, id, version, created_at: createdAt, updated_at: updatedAt, ...stored }) + (format === "jsonl" ? "\n" : "");
     const digest = sha(content);
@@ -134,11 +145,13 @@ export class RecordFileStore {
     const temporary = `${target}.${randomUUID()}.tmp`, fd = openSync(temporary, "wx", 0o600);
     try {
       try { writeFileSync(fd, content); fsyncSync(fd); } finally { closeSync(fd); }
-      try { linkSync(temporary, target); }
+      let linked = false;
+      try { linkSync(temporary, target); linked = true; }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         this.readFile({ path, digest: sha(content), bytes: Buffer.byteLength(content), ...(cold ? { offset: 0 } : {}) });
       }
+      if (linked) this.syncDirectory(dirname(target));
     } finally { unlinkSync(temporary); }
   }
 
@@ -164,6 +177,7 @@ export class RecordFileStore {
   writeColdBatch(entries: readonly ColdRecordEntry[]): Payload[] {
     if (!entries.length) return [];
     if (entries.length > 1000) throw new Error("Cold record batch exceeds 1000 entries");
+    if (entries.some(entry => !Number.isSafeInteger(entry.version) || entry.version < 1)) throw new Error("Record file version must be a positive safe integer");
     const lines = entries.map(entry => {
       const stored = this.withProse(entry.kind, entry.payload);
       return Buffer.from(JSON.stringify({ schema: stored.prose_refs ? "craft.record-file.v2" : "craft.record-file.v1", kind: entry.kind, id: entry.id, version: entry.version, created_at: entry.created_at, updated_at: entry.updated_at, ...stored }) + "\n");

@@ -127,7 +127,7 @@ export class TraceShardStore {
       }
       const fileMode = database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='record_file_mode'").get();
       if (fileMode && !this.#recordFiles) throw new Error("File-backed shard requires its owner record file store");
-      if (create && this.#recordFiles && !fileMode) database.exec("CREATE TABLE record_file_mode(version TEXT NOT NULL CHECK(version='v1')); INSERT INTO record_file_mode VALUES('v1')");
+      if (create && this.#recordFiles && !fileMode) database.exec("CREATE TABLE IF NOT EXISTS record_file_mode(version TEXT NOT NULL CHECK(version='v1')); INSERT OR IGNORE INTO record_file_mode VALUES('v1')");
     } catch (error) { database.close(); throw error; }
     (create ? this.#databases : this.#readDatabases).set(shard, database);
     return database;

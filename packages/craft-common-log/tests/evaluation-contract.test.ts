@@ -130,6 +130,45 @@ test("contract definitions reject invalid capability or IO fields", async () => 
   assert.equal((existing.contract as { id: string }).id, "stable");
 });
 
+test("reference sources are copied, merged before use, and never mix an unconfigured kind", async () => {
+  const evaluation = await store(), tasks = await store(), artifacts = await store();
+  const task = createTask(tasks, "authoritative-task");
+  const artifact = artifacts.create("candidate_asset", "authoritative-artifact", { content_digest: digestJson("authoritative"), asset_type: "workflow" });
+  const session = createHostSession(tasks, String(task.id), "authoritative-session");
+  const kernel = new EvaluationContractKernel(evaluation);
+  const firstSources = new Map([["task", tasks], ["host_session", tasks], ["host_session_event", tasks]]);
+  const secondSources = new Map([["candidate_asset", artifacts], ["trace_event", tasks]]);
+  kernel.setReferenceSources(firstSources);
+  kernel.setReferenceSources(new Map([["task", tasks]]));
+  kernel.setReferenceSources(secondSources);
+  assert.throws(() => kernel.setReferenceSources(new Map([["task", artifacts]])), /already configured for task/u);
+  firstSources.set("candidate_asset", evaluation);
+  secondSources.set("task", evaluation);
+
+  assert.deepEqual(kernel.taskRef(String(task.id), Number(task.version)), {
+    kind: "task", id: task.id, version: task.version,
+    digest: digestJson({ kind: "task", id: task.id, version: task.version,
+      payload: Object.fromEntries(Object.entries(task).filter(([key]) => !["id", "version", "created_at", "updated_at"].includes(key)).sort(([a], [b]) => a.localeCompare(b))) }),
+  });
+  assert.deepEqual(kernel.artifactRef("candidate_asset", String(artifact.id), Number(artifact.version)), {
+    kind: "candidate_asset", id: artifact.id, version: artifact.version, digest: artifact.content_digest,
+  });
+  assert.deepEqual(kernel.hostSessionRef(String(session.id), Number(session.version)),
+    new EvaluationContractKernel(tasks).hostSessionRef(String(session.id), Number(session.version)));
+  assert.throws(() => kernel.artifactRef("unregistered_kind", "missing", 1), /source is not configured for unregistered_kind/u);
+  assert.throws(() => kernel.setReferenceSources(new Map([["host_session", tasks]])), /must be configured before/u);
+  assert.throws(() => new EvaluationContractKernel(evaluation).setReferenceSources(new Map([[" ", tasks]])), /must bind a record kind/u);
+  const localTask = createTask(evaluation, "local-only-task"), emptyRouting = new EvaluationContractKernel(evaluation);
+  emptyRouting.setReferenceSources(new Map());
+  assert.throws(() => emptyRouting.taskRef(String(localTask.id), Number(localTask.version)), /source is not configured for task/u);
+});
+
+test("task-effect reference routing cannot be changed after contract definition", async () => {
+  const { kernel } = await taskEffectKernel("route-frozen");
+  const other = await store();
+  assert.throws(() => kernel.setReferenceSources(new Map([["task", other]])), /must be configured before/u);
+});
+
 test("stages advance one gate at a time with distinct evidence", async () => {
   const kernel = new EvaluationContractKernel(await store());
   kernel.define({ ...definition, contract_id: "c" });

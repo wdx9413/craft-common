@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { RecordFileStore } from "../src/record-files.ts";
 import { CraftStore } from "../src/store.ts";
 import { craftPaths, sessionStorageScopeId } from "../src/paths.ts";
 
@@ -92,6 +93,28 @@ test("file-backed Knowledge revisions retain their public behavior and keep full
     assert.throws(() => store.historyMetadata("knowledge_claim", "fixture", 0, 5), /bounds/u);
 
   } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("file-backed createBatch stores prose outside SQLite", async () => {
+  const root = mkdtempSync(join(tmpdir(), "craft-file-batch-"));
+  const store = await new CraftStore(craftPaths(root)).open({ fileRecords: true });
+  try {
+    store.createBatch([{ kind: "craft_note", id: "batch-note", payload: { text: "Batch prose stays in a record file." } }]);
+    const row = store.database.prepare("SELECT payload_json FROM records WHERE kind='craft_note' AND id='batch-note'").get() as { payload_json: string };
+    assert(!row.payload_json.includes("Batch prose stays in a record file."));
+    assert.equal(store.get("craft_note", "batch-note").text, "Batch prose stays in a record file.");
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("record file versions must be positive safe integers", () => {
+  const root = mkdtempSync(join(tmpdir(), "craft-file-version-"));
+  try {
+    const files = new RecordFileStore(root, join(root, "catalog"));
+    for (const version of [0, Number.NaN, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(() => files.write("fixture", `bad-version-${String(version)}`, version, {}, "now", "now"), /positive safe integer/u);
+    }
+    assert.throws(() => files.writeColdBatch([{ kind: "fixture", id: "bad-cold-version", version: -1, payload: {}, created_at: "now", updated_at: "now" }]), /positive safe integer/u);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("file mode keeps historical inline records readable and makes migration replacement file-backed", async () => {
@@ -384,6 +407,7 @@ test("owner catalogs commit identical source identities independently without le
     memory.relocateExperienceDefinition("procedure", 1, definition, { ...definition, path: "after" });
     memory.create("evolution_cycle", "cycle", { scope: { kind: "project", id: "fixture" }, status: "active" });
     memory.advanceEvolutionCycle("cycle", 1, { scope: { kind: "project", id: "fixture" }, status: "done" }, "advanced", { transition_id: "t", cycle_id: "cycle", sequence: 1 });
+    assert.equal(memory.findMetadata("evolution_cycle", "cycle", 999), null);
     memory.appendEvent("evolution:cycle", "advanced", { sequence: 2 });
     assert.equal(memory.events("evolution:cycle").length, 2);
     assert.throws(() => memory.appendEvent("evolution:absent", "advanced", {}), /unavailable/u);

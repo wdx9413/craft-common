@@ -297,7 +297,7 @@ export class CraftStore {
       if (this.#ownerRecords && !ownerMode) {
         const partition = database.prepare("SELECT 1 FROM records WHERE json_type(payload_json,'$._knowledge_partition') IS NOT NULL OR json_type(payload_json,'$._memory_partition') IS NOT NULL OR json_type(payload_json,'$._experience_partition') IS NOT NULL OR json_type(payload_json,'$._context_partition') IS NOT NULL OR json_type(payload_json,'$._evolution_partition') IS NOT NULL LIMIT 1").get();
         if (partition) throw new Error("Owner records require verified migration from legacy partitions");
-        database.prepare("INSERT INTO meta(key,value) VALUES('owner_records','v1')").run();
+        database.prepare("INSERT INTO meta(key,value) VALUES('owner_records','v1') ON CONFLICT(key) DO NOTHING").run();
       }
       const fileMode = database.prepare("SELECT value FROM meta WHERE key='record_files'").get() as { value: string } | undefined;
       if (fileMode && !["v1", "v2"].includes(fileMode.value)) throw new Error("Unsupported record file storage mode");
@@ -785,7 +785,7 @@ export class CraftStore {
     if (!entries.length) return [];
     const traceId = this.traceBatchId(entries);
     if (traceId) return this.traceTransaction(traceId, () => entries.map(entry => this.create(entry.kind, entry.id, entry.payload)));
-    if (this.#ownerRecords) return this.transaction(() => entries.map(entry => this.create(entry.kind, entry.id, entry.payload)));
+    if (this.#ownerRecords || this.#recordFiles) return this.transaction(() => entries.map(entry => this.create(entry.kind, entry.id, entry.payload)));
     if (entries.some(entry => this.partitionDomain(entry.kind, entry.payload))) {
       return this.transaction(() => entries.map(entry => this.create(entry.kind, entry.id, entry.payload)));
     }
@@ -1938,7 +1938,7 @@ export class CraftStore {
     let row = (version === undefined
       ? this.database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id)
       : this.database.prepare("SELECT * FROM records WHERE kind=? AND id=? AND version=?").get(kind, id, version));
-    if (!row && kind === "evolution_cycle") row = this.database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id);
+    if (!row && kind === "evolution_cycle" && (!this.#ownerRecords || version === undefined)) row = this.database.prepare("SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1").get(kind, id);
     if (!row) return TRACE_SHARDED_KINDS.has(kind) ? this.traceShards.findMetadata(kind, id, version)
       : CODEBASE_GRAPH_KINDS.has(kind) ? this.codebaseShards.findMetadata(kind, id, version) : null;
     return this.recordMetadataFromSnapshot(row, version);
@@ -1966,7 +1966,7 @@ export class CraftStore {
       : this.database.prepare(
         "SELECT * FROM records WHERE kind=? AND id=? AND version=?",
       ).get(kind, id, version);
-    if (!row && kind === "evolution_cycle") row = this.database.prepare(
+    if (!row && kind === "evolution_cycle" && (!this.#ownerRecords || version === undefined)) row = this.database.prepare(
       "SELECT * FROM records WHERE kind=? AND id=? ORDER BY version DESC LIMIT 1",
     ).get(kind, id);
     if (!row) return TRACE_SHARDED_KINDS.has(kind) ? this.traceShards.find(kind, id, version)
